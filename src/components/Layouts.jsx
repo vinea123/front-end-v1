@@ -1,20 +1,21 @@
+
+// import { Outlet } from 'react-router-dom';
 // import Headers from './Headers';
 // import Sidebars from './Sidebars';
 // import Dashboard from '../page/Dashboard/Dashboard';
-// import AutoLogout from '../utils/useAutoLogout';
+// import useAutoLogout from '../utils/useAutoLogout'; 
 
 // function Layout() {
-//   AutoLogouts();
+//   useAutoLogout(); 
+
 //   return (
 //     <div className="flex flex-col min-h-screen">
 //       <Headers />
-
 //       <div className="flex flex-1">
 //         <Sidebars />
-
 //         <main className="flex-1 p-6 bg-gray-10">
-//           <Dashboard />
-
+//           <Outlet />
+//           {/* <Dashboard /> */}
 //         </main>
 //       </div>
 //     </div>
@@ -24,27 +25,25 @@
 // export default Layout;
 
 
-
-// src/components/Layout.jsx
+import { Outlet } from 'react-router-dom';
 import Headers from './Headers';
 import Sidebars from './Sidebars';
-import Dashboard from '../page/Dashboard/Dashboard';
-import useAutoLogout from '../utils/useAutoLogout'; // ✅ custom hook
+import useAutoLogout from '../utils/useAutoLogout';
 
-function Layout() {
-  useAutoLogout(); // ✅ correct usage of hook
+function Layouts() {
+  useAutoLogout();
 
   return (
     <div className="flex flex-col min-h-screen">
       <Headers />
       <div className="flex flex-1">
         <Sidebars />
-        <main className="flex-1 p-6 bg-gray-10">
-          <Dashboard />
+        <main className="flex-1 p-6 bg-gray-100">
+          <Outlet />
         </main>
       </div>
     </div>
   );
 }
 
-export default Layout;
+export default Layouts;

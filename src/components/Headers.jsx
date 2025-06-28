@@ -1,8 +1,8 @@
 function Headers() {
   return (
     <header
-      className="border-b shadow-sm px-6 py-2 flex items-center justify-between"
-      style={{ backgroundColor: '#009DCA' }}
+      className="border-b shadow-sm px-6 py-2 flex items-center justify-between bg-cyan-600 "
+      // style={{ backgroundColor: '#009DCA' }}
     >
       <div className="flex items-center gap-3">
         <div className="w-10 h-10 bg-white text-[#009DCA] rounded-full flex items-center justify-center font-bold shadow">
