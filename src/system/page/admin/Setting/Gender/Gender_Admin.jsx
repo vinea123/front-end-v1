@@ -1,10 +1,17 @@
 import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import axios from "axios";
-import { Edit, Trash2 } from "lucide-react";
+import GenderModal from "./components/GenderModal";
+import GenderTable from "./components/GenderTable";
+import Pagination from "./components/Pagination";
+import Loading from "./components/Loading";
+import Alert from "./components/Alert";
 
-const API_URL = "http://127.0.0.1:8000/admin/gender";
+const API_URL = `${import.meta.env.VITE_API_URL}/admin/gender`;
+const MIN_LOADING_TIME = 1000;
 
 function Gender() {
+  const navigate = useNavigate();
   const [genders, setGenders] = useState([]);
   const [search, setSearch] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
@@ -14,10 +21,125 @@ function Gender() {
   const [errors, setErrors] = useState({});
   const [editId, setEditId] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [loadingFailed, setLoadingFailed] = useState(false);
+  const [minimumLoadingDone, setMinimumLoadingDone] = useState(false);
+  const [alerts, setAlerts] = useState([]);
 
   const token = localStorage.getItem("token");
-  const axiosConfig = {
-    headers: { Authorization: `Bearer ${token}` },
+  const axiosConfig = { headers: { Authorization: `Bearer ${token}` } };
+
+  const showAlert = (message, type = 'info', duration = 3000, position = 'top-right') => {
+    const id = Date.now().toString();
+    setAlerts(prev => [...prev, { id, message, type, duration, position }]);
+    
+    if (duration) {
+      setTimeout(() => {
+        removeAlert(id);
+      }, duration);
+    }
+  };
+
+  const removeAlert = (id) => {
+    setAlerts(prev => prev.filter(alert => alert.id !== id));
+  };
+
+  const handleAuthError = (error) => {
+    if (error.response?.status === 401) {
+      showAlert("Session expired. Please login again.", 'error', 3000, 'top-center');
+      localStorage.removeItem("token");
+      navigate("/login");
+    } else {
+      console.error(error);
+      showAlert(error.response?.data?.message || "Something went wrong", 'error');
+    }
+  };
+
+  useEffect(() => {
+    if (!token) {
+      navigate("/login");
+      return;
+    }
+
+    let loadingTimer;
+
+    const fetchData = async () => {
+      try {
+        loadingTimer = setTimeout(() => {
+          setMinimumLoadingDone(true);
+        }, MIN_LOADING_TIME);
+
+        const res = await axios.get(API_URL, axiosConfig);
+        setGenders(res.data.data || []);
+
+        if (!minimumLoadingDone) {
+          await new Promise(resolve => {
+            const interval = setInterval(() => {
+              if (minimumLoadingDone) {
+                clearInterval(interval);
+                resolve();
+              }
+            }, 100);
+          });
+        }
+
+        setLoading(false);
+      } catch (error) {
+        console.error("Failed to fetch genders:", error);
+        
+        if (!minimumLoadingDone) {
+          await new Promise(resolve => {
+            const interval = setInterval(() => {
+              if (minimumLoadingDone) {
+                clearInterval(interval);
+                resolve();
+              }
+            }, 100);
+          });
+        }
+
+        setLoading(false);
+        setLoadingFailed(true);
+        handleAuthError(error);
+      } finally {
+        clearTimeout(loadingTimer);
+      }
+    };
+
+    fetchData();
+
+    return () => {
+      clearTimeout(loadingTimer);
+    };
+  }, [token, navigate, minimumLoadingDone]);
+
+  const handleSave = async () => {
+    const name = formData.name.trim();
+    const newErrors = {};
+    if (!name) newErrors.name = "Name is required";
+    setErrors(newErrors);
+    
+    if (Object.keys(newErrors).length > 0) {
+      // showAlert("Please fix the form errors", 'error');
+      return;
+    }
+
+    setSaving(true);
+    try {
+      if (editId !== null) {
+        await axios.put(`${API_URL}/${editId}`, { name }, axiosConfig);
+        showAlert("Updated successfully", 'success');
+      } else {
+        await axios.post(API_URL, { name }, axiosConfig);
+        showAlert("Created successfully", 'success');
+      }
+      closeForm();
+      await fetchGenders();
+    } catch (error) {
+      handleAuthError(error);
+    } finally {
+      setSaving(false);
+    }
   };
 
   const fetchGenders = async () => {
@@ -25,48 +147,24 @@ function Gender() {
       const res = await axios.get(API_URL, axiosConfig);
       setGenders(res.data.data || []);
     } catch (error) {
-      console.error("Fetch error:", error);
-      alert("Failed to load gender data.");
-    }
-  };
-
-  useEffect(() => {
-    fetchGenders();
-  }, []);
-
-  const handleSave = async () => {
-    const name = formData.name.trim();
-    const newErrors = {};
-    if (!name) newErrors.name = "Name is required";
-    setErrors(newErrors);
-    if (Object.keys(newErrors).length > 0) return;
-
-    setSaving(true);
-    try {
-      if (editId !== null) {
-        await axios.put(`${API_URL}/${editId}`, { name }, axiosConfig);
-      } else {
-        await axios.post(API_URL, { name }, axiosConfig);
-      }
-      closeForm();
-      fetchGenders();
-    } catch (error) {
-      console.error("Save failed:", error);
-      alert("Failed to save gender.");
-    } finally {
-      setSaving(false);
+      handleAuthError(error);
     }
   };
 
   const handleDelete = async (id) => {
-    if (!window.confirm("Delete this record?")) return;
+    if (!window.confirm("Are you sure you want to delete this gender?")) return;
     try {
       await axios.delete(`${API_URL}/${id}`, axiosConfig);
-      fetchGenders();
+      showAlert("Deleted successfully", 'success');
+      await fetchGenders();
     } catch (error) {
-      console.error("Delete failed:", error);
-      alert("Failed to delete gender.");
+      handleAuthError(error);
     }
+  };
+
+  const goToPage = (page) => {
+    if (page < 1 || page > totalPages) return;
+    setCurrentPage(page);
   };
 
   const openCreateForm = () => {
@@ -97,24 +195,40 @@ function Gender() {
   const startIndex = (currentPage - 1) * itemsPerPage;
   const currentData = filteredData.slice(startIndex, startIndex + itemsPerPage);
 
-  const goToPage = (page) => {
-    if (page < 1 || page > totalPages) return;
-    setCurrentPage(page);
-  };
-
   const handleItemsPerPageChange = (e) => {
     setItemsPerPage(parseInt(e.target.value));
     setCurrentPage(1);
   };
 
+  if (loading) {
+    return (
+      <div className="fixed inset-0 flex items-center justify-center bg-white bg-opacity-90 z-50">
+        <Loading />
+      </div>
+    );
+  }
+
+ 
+
   return (
     <div className="font-poppins p-4">
+      {/* Render all alerts */}
+      {alerts.map(alert => (
+        <Alert
+          key={alert.id}
+          message={alert.message}
+          type={alert.type}
+          onClose={() => removeAlert(alert.id)}
+          duration={alert.duration}
+          position={alert.position}
+        />
+      ))}
+
       <div className="bg-white shadow rounded-lg p-4">
-        {/* Controls */}
         <div className="flex flex-col md:flex-row justify-between gap-4 mb-4">
           <button
             onClick={openCreateForm}
-            className="px-5 py-2 bg-cyan-600 text-white rounded hover:bg-cyan-700"
+            className="px-5 py-2 bg-cyan-800 text-white text-sm rounded hover:bg-cyan-700"
           >
             Create
           </button>
@@ -128,14 +242,14 @@ function Gender() {
                 setSearch(e.target.value);
                 setCurrentPage(1);
               }}
-              className="px-3 py-1.5 border border-cyan-300 rounded text-sm w-full md:w-64"
+              className="px-3 py-1.5 border border-cyan-800 rounded text-sm w-full md:w-64"
             />
             <div className="flex items-center gap-1">
               <label className="text-sm text-gray-600">Show</label>
               <select
                 value={itemsPerPage}
                 onChange={handleItemsPerPageChange}
-                className="border border-cyan-300 rounded px-2 py-1 text-sm"
+                className="border border-cyan-800 rounded px-2 py-1 text-sm"
               >
                 {[10, 20, 30, 40, 50].map((count) => (
                   <option key={count} value={count}>
@@ -148,197 +262,33 @@ function Gender() {
           </div>
         </div>
 
-        {/* Table */}
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-xs border border-cyan-600 rounded overflow-hidden">
-            <thead className="bg-cyan-600 text-white">
-              <tr>
-                <th className="text-left px-3 py-2">No</th>
-                <th className="text-left px-3 py-2">Name</th>
-                <th className="text-center px-3 py-2">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {currentData.length ? (
-                currentData.map((g, i) => (
-                  <tr key={g.id} className="hover:bg-cyan-50 border-b">
-                    <td className="px-3 py-2">{startIndex + i + 1}</td>
-                    <td className="px-3 py-2">{g.name}</td>
-                    <td className="px-3 py-2 text-center space-x-2">
-                      <button
-                        onClick={() => openEditForm(g)}
-                        className="text-cyan-700"
-                      >
-                        <Edit size={16} />
-                      </button>
-                      <button
-                        onClick={() => handleDelete(g.id)}
-                        className="text-red-600"
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                    </td>
-                  </tr>
-                ))
-              ) : (
-                <tr>
-                  <td colSpan="3" className="text-center px-4 py-4 text-gray-500">
-                    No matching records.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+        <GenderTable
+          currentData={currentData}
+          startIndex={startIndex}
+          openEditForm={openEditForm}
+          handleDelete={handleDelete}
+        />
 
-        {/* Pagination */}
-        <div className="flex justify-between items-center mt-6 flex-wrap gap-2 text-sm">
-          <div className="text-gray-600">
-            Showing {startIndex + 1} to{" "}
-            {Math.min(startIndex + itemsPerPage, filteredData.length)} of{" "}
-            {filteredData.length} entries
-          </div>
-          <div className="flex items-center space-x-1">
-            <button
-              onClick={() => goToPage(1)}
-              disabled={currentPage === 1}
-              className={`px-2 py-1 rounded border ${
-                currentPage === 1
-                  ? "text-gray-300 border-gray-300"
-                  : "text-cyan-600 border-cyan-600 hover:bg-cyan-100"
-              }`}
-            >
-              First
-            </button>
-            <button
-              onClick={() => goToPage(currentPage - 1)}
-              disabled={currentPage === 1}
-              className={`px-2 py-1 rounded border ${
-                currentPage === 1
-                  ? "text-gray-300 border-gray-300"
-                  : "text-cyan-600 border-cyan-600 hover:bg-cyan-100"
-              }`}
-            >
-              Prev
-            </button>
-
-            {[...Array(totalPages)].map((_, idx) => {
-              const page = idx + 1;
-              if (
-                page === 1 ||
-                page === totalPages ||
-                (page >= currentPage - 1 && page <= currentPage + 1)
-              ) {
-                return (
-                  <button
-                    key={page}
-                    onClick={() => goToPage(page)}
-                    className={`px-3 py-1 rounded border ${
-                      currentPage === page
-                        ? "bg-cyan-600 text-white border-cyan-600"
-                        : "text-cyan-600 border-cyan-600 hover:bg-cyan-100"
-                    }`}
-                  >
-                    {page}
-                  </button>
-                );
-              } else if (
-                (page === currentPage - 2 && page > 1) ||
-                (page === currentPage + 2 && page < totalPages)
-              ) {
-                return (
-                  <span key={page} className="px-2 text-gray-400">
-                    ...
-                  </span>
-                );
-              }
-              return null;
-            })}
-
-            <button
-              onClick={() => goToPage(currentPage + 1)}
-              disabled={currentPage === totalPages}
-              className={`px-2 py-1 rounded border ${
-                currentPage === totalPages
-                  ? "text-gray-300 border-gray-300"
-                  : "text-cyan-600 border-cyan-600 hover:bg-cyan-100"
-              }`}
-            >
-              Next
-            </button>
-            <button
-              onClick={() => goToPage(totalPages)}
-              disabled={currentPage === totalPages}
-              className={`px-2 py-1 rounded border ${
-                currentPage === totalPages
-                  ? "text-gray-300 border-gray-300"
-                  : "text-cyan-600 border-cyan-600 hover:bg-cyan-100"
-              }`}
-            >
-              Last
-            </button>
-          </div>
-        </div>
+        <Pagination
+          currentPage={currentPage}
+          totalPages={totalPages}
+          startIndex={startIndex}
+          itemsPerPage={itemsPerPage}
+          filteredData={filteredData}
+          goToPage={goToPage}
+        />
       </div>
 
-      {/* Modal Form */}
-      {showForm && (
-        <div
-          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
-          onClick={(e) => e.target === e.currentTarget && closeForm()}
-        >
-          <div className="bg-white p-6 rounded-lg w-full max-w-md shadow-lg relative">
-            <button
-              onClick={closeForm}
-              className="absolute top-3 right-3 text-gray-500 hover:text-gray-700"
-              aria-label="Close form"
-            >
-              &times;
-            </button>
-            <h2 className="text-lg font-semibold mb-4">
-              {editId !== null ? "Update Gender" : "Create Gender"}
-            </h2>
-            <div className="mb-4">
-              <label
-                className="block text-sm font-medium mb-1"
-                htmlFor="gender-name"
-              >
-                Name
-              </label>
-              <input
-                id="gender-name"
-                type="text"
-                value={formData.name}
-                onChange={(e) => {
-                  setFormData({ name: e.target.value });
-                  setErrors({});
-                }}
-                className="w-full border px-3 py-2 rounded text-sm"
-              />
-              {errors.name && (
-                <p className="text-red-500 text-xs mt-1" role="alert">
-                  {errors.name}
-                </p>
-              )}
-            </div>
-            <div className="flex justify-end gap-2">
-              <button
-                onClick={handleSave}
-                disabled={saving}
-                className="bg-cyan-600 text-white px-4 py-2 rounded hover:bg-cyan-700 disabled:opacity-50"
-              >
-                {editId !== null ? "Update" : "Save"}
-              </button>
-              <button
-                onClick={closeForm}
-                className="bg-gray-200 text-gray-700 px-4 py-2 rounded hover:bg-gray-300"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <GenderModal
+        showForm={showForm}
+        closeForm={closeForm}
+        formData={formData}
+        setFormData={setFormData}
+        errors={errors}
+        editId={editId}
+        saving={saving}
+        handleSave={handleSave}
+      />
     </div>
   );
 }
